@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 let files = [];
 let index = 0;
 let imageUrls = [];
+let pageDrag;
 const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
 const orderedFiles = () => $('reverse').checked ? [...files].reverse() : files;
 function updateHeader() {
@@ -14,6 +15,8 @@ function updateHeader() {
   $('next').disabled = index === files.length - 1;
 }
 function clearPages() {
+  pageDrag = undefined;
+  $('canvas').classList.remove('dragging');
   $('canvas').replaceChildren();
   imageUrls.forEach(url => URL.revokeObjectURL(url));
   imageUrls = [];
@@ -63,6 +66,8 @@ function move(delta) {
 $('previous').onclick = () => move(-1);
 $('next').onclick = () => move(1);
 $('scroll-mode').onchange = () => {
+  pageDrag = undefined;
+  $('canvas').classList.remove('dragging');
   $('canvas').classList.toggle('scroll-mode', $('scroll-mode').checked);
   scrollToPage('instant');
 };
@@ -78,7 +83,66 @@ $('canvas').addEventListener('scroll', () => {
   }
   updateHeader();
 }, { passive: true });
+// Drive horizontal touch dragging ourselves so browser momentum cannot continue
+// after a completed page turn. Vertical reading and pinch zoom stay native.
+$('canvas').addEventListener('touchstart', event => {
+  if ($('scroll-mode').checked || !files.length) return;
+  if (event.touches.length !== 1) {
+    finishPageDrag(true);
+    return;
+  }
+  const canvas = $('canvas');
+  canvas.classList.add('dragging');
+  canvas.scrollTo({ left: canvas.scrollLeft, behavior: 'instant' });
+  const touch = event.touches[0];
+  pageDrag = {
+    x: touch.clientX, y: touch.clientY,
+    left: canvas.scrollLeft, startIndex: index,
+    horizontal: false, time: performance.now(),
+  };
+}, { passive: true });
+$('canvas').addEventListener('touchmove', event => {
+  if (!pageDrag || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  const dx = touch.clientX - pageDrag.x;
+  const dy = touch.clientY - pageDrag.y;
+  if (!pageDrag.horizontal) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 6) return;
+    if (Math.abs(dy) > Math.abs(dx)) {
+      finishPageDrag(true);
+      return;
+    }
+    pageDrag.horizontal = true;
+  }
+  event.preventDefault();
+  const canvas = $('canvas');
+  const width = canvas.clientWidth;
+  const minimum = Math.max(0, (pageDrag.startIndex - 1) * width);
+  const maximum = Math.min((files.length - 1) * width, (pageDrag.startIndex + 1) * width);
+  canvas.scrollLeft = Math.max(minimum, Math.min(maximum, pageDrag.left - dx));
+}, { passive: false });
+function finishPageDrag(cancelled = false) {
+  if (!pageDrag) return;
+  const drag = pageDrag;
+  pageDrag = undefined;
+  const canvas = $('canvas');
+  const width = canvas.clientWidth;
+  const displacement = canvas.scrollLeft - drag.left;
+  const nearest = Math.max(0, Math.min(files.length - 1, Math.round(canvas.scrollLeft / width)));
+  const completed = nearest !== drag.startIndex;
+  const flick = !cancelled && Math.abs(displacement) > 32 && Math.abs(displacement) / Math.max(1, performance.now() - drag.time) > 0.5;
+  index = completed ? nearest : flick ? Math.max(0, Math.min(files.length - 1, drag.startIndex + Math.sign(displacement))) : drag.startIndex;
+  // A drag that has already entered the next page settles immediately.
+  // Only an incomplete drag or short flick needs a remaining transition.
+  if (completed || cancelled) scrollToPage('instant');
+  canvas.classList.remove('dragging');
+  if (!completed && !cancelled) scrollToPage();
+  updateHeader();
+}
+$('canvas').addEventListener('touchend', () => finishPageDrag(), { passive: true });
+$('canvas').addEventListener('touchcancel', () => finishPageDrag(true), { passive: true });
 new ResizeObserver(() => {
+  finishPageDrag(true);
   if (files.length) scrollToPage('instant');
 }).observe($('canvas'));
 $('choose').onclick = () => $('folder').click();

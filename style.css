@@ -7,3 +7,5 @@
 .page-button{display:none;position:absolute;top:50%;transform:translateY(-50%);width:42px;height:48px;border:1px solid #ffffff20;border-radius:8px;background:#20221ecc;color:#d8e9bc;font-size:30px;z-index:1}
 .page-button:hover{background:#34392c}.page-button:disabled{opacity:.2;cursor:default}.previous{left:16px}.next{right:16px}
 @media(hover:hover) and (pointer:fine){.page-button{display:block}.canvas:not(.scroll-mode) .slide{padding-left:72px;padding-right:72px}}
+
+.canvas:not(.scroll-mode){touch-action:pan-y pinch-zoom}.canvas.dragging{scroll-snap-type:none}
