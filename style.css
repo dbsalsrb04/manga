@@ -9,3 +9,18 @@
 @media(hover:hover) and (pointer:fine){.page-button{display:block}.canvas:not(.scroll-mode) .slide{padding-left:72px;padding-right:72px}}
 
 .canvas:not(.scroll-mode){touch-action:pan-y pinch-zoom}.canvas.dragging{scroll-snap-type:none}
+
+#back {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #626a57;
+  border-radius: 8px;
+  background: #292e24;
+  color: #e4eadc;
+}
+#back:hover { background: #363e2d; border-color: #a4bc83; }
+#back:active { background: #414c35; }
