@@ -1,29 +1,62 @@
 const $ = (id) => document.getElementById(id);
 let files = [];
 let index = 0;
-let imageUrl;
+let imageUrls = [];
 const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
 const orderedFiles = () => $('reverse').checked ? [...files].reverse() : files;
-function render() {
+function updateHeader() {
   const file = orderedFiles()[index];
   if (!file) return;
-  if (imageUrl) URL.revokeObjectURL(imageUrl);
-  imageUrl = URL.createObjectURL(file);
-  $('image-error').hidden = true;
-  $('page').hidden = false;
-  $('page').src = imageUrl;
-  $('page').alt = file.name;
   $('counter').textContent = `${index + 1}/${files.length}`;
   $('filename').textContent = file.name;
   $('filename').title = file.webkitRelativePath || file.name;
-  $('position').textContent = `${index + 1} / ${files.length}`;
-  $('previous').disabled = index === 0;
-  $('next').disabled = index === files.length - 1;
+}
+function clearPages() {
+  $('canvas').replaceChildren();
+  imageUrls.forEach(url => URL.revokeObjectURL(url));
+  imageUrls = [];
+}
+function render() {
+  clearPages();
+  const pages = orderedFiles().map((file, pageIndex) => {
+    const slide = document.createElement('div');
+    slide.className = 'slide';
+    slide.setAttribute('role', 'group');
+    slide.setAttribute('aria-label', `${pageIndex + 1}/${files.length}`);
+    const image = document.createElement('img');
+    const url = URL.createObjectURL(file);
+    imageUrls.push(url);
+    image.src = url;
+    image.alt = file.name;
+    image.draggable = false;
+    image.loading = Math.abs(pageIndex - index) <= 1 ? 'eager' : 'lazy';
+    image.onerror = () => {
+      image.hidden = true;
+      const message = document.createElement('p');
+      message.className = 'image-error';
+      message.textContent = '이 이미지를 표시할 수 없습니다. 다음 페이지로 넘겨주세요.';
+      slide.append(message);
+    };
+    slide.append(image);
+    return slide;
+  });
+  $('canvas').append(...pages);
+  $('canvas').scrollTo({ left: index * $('canvas').clientWidth, behavior: 'instant' });
+  updateHeader();
 }
 function move(delta) {
-  const target = Math.max(0, Math.min(files.length - 1, index + delta));
-  if (target !== index) { index = target; render(); }
+  index = Math.max(0, Math.min(files.length - 1, index + delta));
+  $('canvas').scrollTo({ left: index * $('canvas').clientWidth, behavior: 'smooth' });
+  updateHeader();
 }
+$('canvas').addEventListener('scroll', () => {
+  if (!files.length) return;
+  index = Math.max(0, Math.min(files.length - 1, Math.round($('canvas').scrollLeft / $('canvas').clientWidth)));
+  updateHeader();
+}, { passive: true });
+new ResizeObserver(() => {
+  if (files.length) $('canvas').scrollTo({ left: index * $('canvas').clientWidth, behavior: 'instant' });
+}).observe($('canvas'));
 $('choose').onclick = () => $('folder').click();
 $('folder').onchange = (event) => {
   const selected = [...event.target.files];
@@ -43,15 +76,11 @@ $('folder').onchange = (event) => {
 $('back').onclick = () => {
   $('reader').hidden = true;
   $('home').hidden = false;
-  if (imageUrl) URL.revokeObjectURL(imageUrl);
-  imageUrl = undefined;
-  $('page').removeAttribute('src');
+  clearPages();
   files = [];
   index = 0;
   $('choose').focus();
 };
-$('previous').onclick = () => move(-1);
-$('next').onclick = () => move(1);
 $('settings').onclick = () => $('preferences').showModal();
 $('close-settings').onclick = () => $('preferences').close();
 $('preferences').onclick = (event) => {
@@ -61,26 +90,13 @@ $('preferences').onclick = (event) => {
   }
 };
 $('reverse').onchange = () => { index = 0; render(); };
-$('page').onerror = () => { $('page').hidden = true; $('image-error').hidden = false; };
 document.addEventListener('keydown', (event) => {
   if ($('reader').hidden || $('preferences').open || event.altKey || event.ctrlKey || event.metaKey) return;
   if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) {
     event.preventDefault();
     if (event.key === 'ArrowRight') move(1);
     if (event.key === 'ArrowLeft') move(-1);
-    if (event.key === 'Home') { index = 0; render(); }
-    if (event.key === 'End') { index = files.length - 1; render(); }
+    if (event.key === 'Home') move(-files.length);
+    if (event.key === 'End') move(files.length);
   }
 });
-let touchStart;
-$('canvas').addEventListener('touchstart', event => {
-  if (event.touches.length === 1) touchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
-  else touchStart = undefined;
-}, { passive: true });
-$('canvas').addEventListener('touchend', event => {
-  if (!touchStart) return;
-  const dx = event.changedTouches[0].clientX - touchStart.x;
-  const dy = event.changedTouches[0].clientY - touchStart.y;
-  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) move(dx < 0 ? 1 : -1);
-  touchStart = undefined;
-}, { passive: true });
