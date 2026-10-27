@@ -10,6 +10,8 @@ function updateHeader() {
   $('counter').textContent = `${index + 1}/${files.length}`;
   $('filename').textContent = file.name;
   $('filename').title = file.webkitRelativePath || file.name;
+  $('previous').disabled = index === 0;
+  $('next').disabled = index === files.length - 1;
 }
 function clearPages() {
   $('canvas').replaceChildren();
@@ -41,21 +43,43 @@ function render() {
     return slide;
   });
   $('canvas').append(...pages);
-  $('canvas').scrollTo({ left: index * $('canvas').clientWidth, behavior: 'instant' });
+  scrollToPage('instant');
   updateHeader();
+}
+function scrollToPage(behavior = 'smooth') {
+  const slide = $('canvas').children[index];
+  if (!slide) return;
+  $('canvas').scrollTo({
+    left: $('scroll-mode').checked ? 0 : slide.offsetLeft,
+    top: $('scroll-mode').checked ? slide.offsetTop : 0,
+    behavior: matchMedia('(hover: hover) and (pointer: fine)').matches || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : behavior,
+  });
 }
 function move(delta) {
   index = Math.max(0, Math.min(files.length - 1, index + delta));
-  $('canvas').scrollTo({ left: index * $('canvas').clientWidth, behavior: 'smooth' });
+  scrollToPage();
   updateHeader();
 }
+$('previous').onclick = () => move(-1);
+$('next').onclick = () => move(1);
+$('scroll-mode').onchange = () => {
+  $('canvas').classList.toggle('scroll-mode', $('scroll-mode').checked);
+  scrollToPage('instant');
+};
 $('canvas').addEventListener('scroll', () => {
   if (!files.length) return;
-  index = Math.max(0, Math.min(files.length - 1, Math.round($('canvas').scrollLeft / $('canvas').clientWidth)));
+  if ($('scroll-mode').checked) {
+    const slides = [...$('canvas').children];
+    const position = $('canvas').scrollTop + 1;
+    index = slides.findLastIndex(slide => slide.offsetTop <= position);
+    index = Math.max(0, index);
+  } else {
+    index = Math.max(0, Math.min(files.length - 1, Math.round($('canvas').scrollLeft / $('canvas').clientWidth)));
+  }
   updateHeader();
 }, { passive: true });
 new ResizeObserver(() => {
-  if (files.length) $('canvas').scrollTo({ left: index * $('canvas').clientWidth, behavior: 'instant' });
+  if (files.length) scrollToPage('instant');
 }).observe($('canvas'));
 $('choose').onclick = () => $('folder').click();
 $('folder').onchange = (event) => {

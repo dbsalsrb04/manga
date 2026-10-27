@@ -19,12 +19,16 @@
       <div class="file-info"><span id="counter"></span><span class="divider">|</span><span id="filename"></span></div>
       <button id="settings" class="settings-button" aria-haspopup="dialog">설정 <span aria-hidden="true">⚙</span></button>
     </header>
-    <section id="canvas" class="canvas" aria-label="만화 페이지">
-    </section>
+    <div class="viewer">
+      <section id="canvas" class="canvas" aria-label="만화 페이지"></section>
+      <button id="previous" class="page-button previous" aria-label="이전 페이지">‹</button>
+      <button id="next" class="page-button next" aria-label="다음 페이지">›</button>
+    </div>
   </main>
   <dialog id="preferences" aria-labelledby="preferences-title">
     <div class="dialog-heading"><h1 id="preferences-title">설정</h1><button id="close-settings" class="icon-button" aria-label="설정 닫기">×</button></div>
-    <label class="setting-row" for="reverse"><span><strong>역순</strong><small>이미지 순서를 반대로 읽어요</small></span><span class="toggle"><input id="reverse" type="checkbox" role="switch" aria-label="역순 On/Off"><span class="track"></span></span></label>
+    <label class="setting-row mode-row" for="scroll-mode"><span>넘기기</span><span class="toggle"><input id="scroll-mode" type="checkbox" role="switch" aria-label="스크롤 모드"><span class="track"></span></span><span>스크롤</span></label>
+    <label class="setting-row" for="reverse"><span>역순</span><span class="toggle"><input id="reverse" type="checkbox" role="switch" aria-label="역순 On/Off"><span class="track"></span></span></label>
     <div class="shortcut">← → 페이지 이동 <span>ESC 닫기</span></div>
   </dialog>
   <script type="module" src="app.js"></script>
