@@ -4,6 +4,7 @@ let index = 0;
 let imageUrls = [];
 let pageDrag;
 let momentumFrame;
+let dragFrame;
 let pageBarTimer;
 const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
 const orderedFiles = () => $('reverse').checked ? [...files].reverse() : files;
@@ -104,7 +105,7 @@ $('canvas').addEventListener('touchstart', event => {
   const touch = event.touches[0];
   pageDrag = {
     x: touch.clientX, y: touch.clientY,
-    left: canvas.scrollLeft, startIndex: index,
+    left: canvas.scrollLeft, targetLeft: canvas.scrollLeft, startIndex: index,
     horizontal: false, samples: [{ left: canvas.scrollLeft, time: performance.now() }],
   };
 }, { passive: true });
@@ -124,12 +125,31 @@ $('canvas').addEventListener('touchmove', event => {
   event.preventDefault();
   const canvas = $('canvas');
   const width = canvas.clientWidth;
-  canvas.scrollLeft = Math.max(0, Math.min((files.length - 1) * width, pageDrag.left - dx));
+  pageDrag.targetLeft = Math.max(0, Math.min((files.length - 1) * width, pageDrag.left - dx));
+  if (dragFrame === undefined) {
+    pageDrag.frameTime = performance.now();
+    dragFrame = requestAnimationFrame(followPageDrag);
+  }
   const now = performance.now();
-  pageDrag.samples.push({ left: canvas.scrollLeft, time: now });
+  pageDrag.samples.push({ left: pageDrag.targetLeft, time: now });
   pageDrag.samples = pageDrag.samples.filter(sample => now - sample.time <= 120);
 }, { passive: false });
+function followPageDrag(now) {
+  dragFrame = undefined;
+  if (!pageDrag) return;
+  const canvas = $('canvas');
+  const remaining = pageDrag.targetLeft - canvas.scrollLeft;
+  const elapsed = Math.max(1, now - pageDrag.frameTime);
+  pageDrag.frameTime = now;
+  const blend = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 1 - Math.exp(-elapsed / 24);
+  canvas.scrollLeft = Math.abs(remaining) < 1 ? pageDrag.targetLeft : canvas.scrollLeft + remaining * blend;
+  if (Math.abs(pageDrag.targetLeft - canvas.scrollLeft) >= 1) {
+    dragFrame = requestAnimationFrame(followPageDrag);
+  }
+}
 function stopMomentum() {
+  cancelAnimationFrame(dragFrame);
+  dragFrame = undefined;
   cancelAnimationFrame(momentumFrame);
   momentumFrame = undefined;
   $('canvas').classList.remove('dragging');
@@ -157,6 +177,8 @@ function animateToPage(target, velocity) {
 function finishPageDrag(cancelled = false) {
   if (!pageDrag) return;
   const drag = pageDrag;
+  cancelAnimationFrame(dragFrame);
+  dragFrame = undefined;
   pageDrag = undefined;
   const canvas = $('canvas');
   const width = canvas.clientWidth;
