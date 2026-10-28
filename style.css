@@ -43,3 +43,15 @@
 
 /* Visual overflow lets the release spring oscillate at the first/last page too. */
 .slide { transform: translateX(var(--page-offset, 0px)); }
+
+.home { position: relative; }
+.commit-count {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  color: #999e93;
+  font: 13px ui-monospace, monospace;
+}
+@media (max-width: 600px) {
+  .commit-count { top: 16px; left: 16px; }
+}
