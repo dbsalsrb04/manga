@@ -3,6 +3,8 @@ let files = [];
 let index = 0;
 let imageUrls = [];
 let pageDrag;
+let momentumFrame;
+let pageBarTimer;
 const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
 const orderedFiles = () => $('reverse').checked ? [...files].reverse() : files;
 function updateHeader() {
@@ -13,8 +15,11 @@ function updateHeader() {
   $('filename').title = file.webkitRelativePath || file.name;
   $('previous').disabled = index === 0;
   $('next').disabled = index === files.length - 1;
+  updatePageBar();
 }
 function clearPages() {
+  stopMomentum();
+  hidePageBar();
   pageDrag = undefined;
   $('canvas').classList.remove('dragging');
   $('canvas').replaceChildren();
@@ -50,6 +55,7 @@ function render() {
   updateHeader();
 }
 function scrollToPage(behavior = 'smooth') {
+  stopMomentum();
   const slide = $('canvas').children[index];
   if (!slide) return;
   $('canvas').scrollTo({
@@ -83,8 +89,8 @@ $('canvas').addEventListener('scroll', () => {
   }
   updateHeader();
 }, { passive: true });
-// Drive horizontal touch dragging ourselves so browser momentum cannot continue
-// after a completed page turn. Vertical reading and pinch zoom stay native.
+// Track recent motion for a velocity- and acceleration-sensitive release.
+// Vertical reading and pinch zoom stay native.
 $('canvas').addEventListener('touchstart', event => {
   if ($('scroll-mode').checked || !files.length) return;
   if (event.touches.length !== 1) {
@@ -92,13 +98,14 @@ $('canvas').addEventListener('touchstart', event => {
     return;
   }
   const canvas = $('canvas');
+  stopMomentum();
   canvas.classList.add('dragging');
   canvas.scrollTo({ left: canvas.scrollLeft, behavior: 'instant' });
   const touch = event.touches[0];
   pageDrag = {
     x: touch.clientX, y: touch.clientY,
     left: canvas.scrollLeft, startIndex: index,
-    horizontal: false, time: performance.now(),
+    horizontal: false, samples: [{ left: canvas.scrollLeft, time: performance.now() }],
   };
 }, { passive: true });
 $('canvas').addEventListener('touchmove', event => {
@@ -117,27 +124,66 @@ $('canvas').addEventListener('touchmove', event => {
   event.preventDefault();
   const canvas = $('canvas');
   const width = canvas.clientWidth;
-  const minimum = Math.max(0, (pageDrag.startIndex - 1) * width);
-  const maximum = Math.min((files.length - 1) * width, (pageDrag.startIndex + 1) * width);
-  canvas.scrollLeft = Math.max(minimum, Math.min(maximum, pageDrag.left - dx));
+  canvas.scrollLeft = Math.max(0, Math.min((files.length - 1) * width, pageDrag.left - dx));
+  const now = performance.now();
+  pageDrag.samples.push({ left: canvas.scrollLeft, time: now });
+  pageDrag.samples = pageDrag.samples.filter(sample => now - sample.time <= 120);
 }, { passive: false });
+function stopMomentum() {
+  cancelAnimationFrame(momentumFrame);
+  momentumFrame = undefined;
+  $('canvas').classList.remove('dragging');
+}
+function animateToPage(target, velocity) {
+  const canvas = $('canvas');
+  const start = canvas.scrollLeft;
+  const end = target * canvas.clientWidth;
+  const distance = end - start;
+  const duration = Math.min(450, Math.max(180, Math.abs(distance) / Math.max(1, Math.abs(velocity))));
+  const began = performance.now();
+  canvas.classList.add('dragging');
+  const step = now => {
+    const progress = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : Math.min(1, (now - began) / duration);
+    canvas.scrollLeft = start + distance * (1 - (1 - progress) ** 3);
+    if (progress < 1) momentumFrame = requestAnimationFrame(step);
+    else {
+      stopMomentum();
+      index = target;
+      updateHeader();
+    }
+  };
+  momentumFrame = requestAnimationFrame(step);
+}
 function finishPageDrag(cancelled = false) {
   if (!pageDrag) return;
   const drag = pageDrag;
   pageDrag = undefined;
   const canvas = $('canvas');
   const width = canvas.clientWidth;
-  const displacement = canvas.scrollLeft - drag.left;
-  const nearest = Math.max(0, Math.min(files.length - 1, Math.round(canvas.scrollLeft / width)));
-  const completed = nearest !== drag.startIndex;
-  const flick = !cancelled && Math.abs(displacement) > 32 && Math.abs(displacement) / Math.max(1, performance.now() - drag.time) > 0.5;
-  index = completed ? nearest : flick ? Math.max(0, Math.min(files.length - 1, drag.startIndex + Math.sign(displacement))) : drag.startIndex;
-  // A drag that has already entered the next page settles immediately.
-  // Only an incomplete drag or short flick needs a remaining transition.
-  if (completed || cancelled) scrollToPage('instant');
-  canvas.classList.remove('dragging');
-  if (!completed && !cancelled) scrollToPage();
-  updateHeader();
+  const samples = drag.samples;
+  let velocity = 0;
+  let acceleration = 0;
+  // A pause before release cancels the flick instead of using stale movement.
+  if (!cancelled && drag.horizontal && performance.now() - samples.at(-1).time < 90 && samples.length > 1) {
+    const last = samples.at(-1);
+    const first = samples[0];
+    velocity = (last.left - first.left) / Math.max(1, last.time - first.time);
+    if (samples.length >= 3) {
+      const middle = samples[Math.floor(samples.length / 2)];
+      const earlySpeed = (middle.left - first.left) / Math.max(1, middle.time - first.time);
+      const lateSpeed = (last.left - middle.left) / Math.max(1, last.time - middle.time);
+      acceleration = (lateSpeed - earlySpeed) / Math.max(1, (last.time - first.time) / 2);
+    }
+  }
+  const boost = Math.sign(velocity) === Math.sign(acceleration) ? Math.min(0.6, Math.abs(acceleration) * 30) : 0;
+  const projection = Math.abs(velocity) > 0.35 ? velocity * 180 * (1 + boost) : 0;
+  const projected = canvas.scrollLeft + Math.max(-width * 3, Math.min(width * 3, projection));
+  const target = Math.max(0, Math.min(files.length - 1, Math.round(projected / width)));
+  if (cancelled || !drag.horizontal) {
+    index = Math.max(0, Math.min(files.length - 1, Math.round(canvas.scrollLeft / width)));
+    scrollToPage('instant');
+    updateHeader();
+  } else animateToPage(target, velocity);
 }
 $('canvas').addEventListener('touchend', () => finishPageDrag(), { passive: true });
 $('canvas').addEventListener('touchcancel', () => finishPageDrag(true), { passive: true });
@@ -179,6 +225,7 @@ $('preferences').onclick = (event) => {
 };
 $('reverse').onchange = () => { index = 0; render(); };
 document.addEventListener('keydown', (event) => {
+  if (event.target === $('page-range')) return;
   if ($('reader').hidden || $('preferences').open || event.altKey || event.ctrlKey || event.metaKey) return;
   if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) {
     event.preventDefault();
@@ -188,3 +235,55 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'End') move(files.length);
   }
 });
+
+function updatePageBar() {
+  const total = files.length;
+  $('page-range').max = String(total);
+  $('page-range').value = String(index + 1);
+  $('page-range').disabled = total <= 1;
+  $('page-range').setAttribute('aria-valuetext', `${index + 1} / ${total}`);
+  $('page-total').textContent = total;
+  $('page-bubble').textContent = index + 1;
+  const fraction = total > 1 ? index / (total - 1) : 0;
+  // Range thumbs move within half a thumb's width at either endpoint.
+  $('page-bubble').style.left = `calc(${fraction * 100}% + ${8 - fraction * 16}px)`;
+}
+function hidePageBar() {
+  clearTimeout(pageBarTimer);
+  $('page-bar').hidden = true;
+}
+function showPageBar() {
+  if (!files.length) return;
+  clearTimeout(pageBarTimer);
+  $('page-bar').hidden = false;
+  if (!matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    pageBarTimer = setTimeout(() => {
+      if (!$('page-bar').contains(document.activeElement)) hidePageBar();
+    }, 4000);
+  }
+}
+$('viewer').addEventListener('pointermove', event => {
+  if (event.pointerType !== 'mouse') return;
+  const bounds = $('viewer').getBoundingClientRect();
+  if (event.clientY >= bounds.bottom - 100) showPageBar();
+  else if (!$('page-bar').contains(document.activeElement)) hidePageBar();
+});
+$('viewer').addEventListener('pointerleave', () => {
+  if (matchMedia('(hover: hover) and (pointer: fine)').matches && !$('page-bar').contains(document.activeElement)) hidePageBar();
+});
+$('viewer').addEventListener('click', event => {
+  if (matchMedia('(hover: hover) and (pointer: fine)').matches || $('page-bar').contains(event.target)) return;
+  const bounds = $('viewer').getBoundingClientRect();
+  if (event.clientY >= bounds.bottom - 100) {
+    if ($('page-bar').hidden) showPageBar();
+    else hidePageBar();
+  } else hidePageBar();
+});
+$('page-range').addEventListener('input', () => {
+  pageDrag = undefined;
+  index = Number($('page-range').value) - 1;
+  scrollToPage('instant');
+  updateHeader();
+  showPageBar();
+});
+$('page-range').addEventListener('blur', showPageBar);

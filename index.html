@@ -20,8 +20,16 @@
       <div class="file-info"><span id="counter"></span><span class="divider">|</span><span id="filename"></span></div>
       <button id="settings" class="settings-button" aria-haspopup="dialog">설정 <span aria-hidden="true">⚙</span></button>
     </header>
-    <div class="viewer">
+    <div id="viewer" class="viewer">
       <section id="canvas" class="canvas" aria-label="만화 페이지"></section>
+      <div id="page-bar" class="page-bar" aria-label="페이지 탐색" hidden>
+        <span class="page-endpoint">1</span>
+        <div class="page-track">
+          <output id="page-bubble" for="page-range">1</output>
+          <input id="page-range" type="range" min="1" max="1" value="1" step="1" aria-label="이동할 페이지">
+        </div>
+        <span id="page-total" class="page-endpoint">1</span>
+      </div>
       <button id="previous" class="page-button previous" aria-label="이전 페이지">‹</button>
       <button id="next" class="page-button next" aria-label="다음 페이지">›</button>
     </div>
