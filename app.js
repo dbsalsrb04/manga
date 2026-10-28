@@ -62,7 +62,7 @@ function scrollToPage(behavior = 'smooth') {
   $('canvas').scrollTo({
     left: $('scroll-mode').checked ? 0 : slide.offsetLeft,
     top: $('scroll-mode').checked ? slide.offsetTop : 0,
-    behavior: matchMedia('(hover: hover) and (pointer: fine)').matches || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : behavior,
+    behavior: matchMedia('(hover: hover) and (pointer: fine)').matches ? 'instant' : behavior,
   });
 }
 function move(delta) {
@@ -106,7 +106,8 @@ $('canvas').addEventListener('touchstart', event => {
   const touch = event.touches[0];
   pageDrag = {
     x: touch.clientX, y: touch.clientY,
-    left, targetLeft: left, startIndex: index,
+    left, targetLeft: left,
+    startIndex: Math.max(0, Math.min(files.length - 1, Math.round(left / canvas.clientWidth))),
     horizontal: false, samples: [{ left, time: performance.now() }],
   };
 }, { passive: true });
@@ -126,7 +127,10 @@ $('canvas').addEventListener('touchmove', event => {
   event.preventDefault();
   const canvas = $('canvas');
   const width = canvas.clientWidth;
-  pageDrag.targetLeft = Math.max(0, Math.min((files.length - 1) * width, pageDrag.left - dx));
+  // One gesture can expose only the adjacent page in either direction.
+  const first = Math.max(0, pageDrag.startIndex - 1) * width;
+  const last = Math.min(files.length - 1, pageDrag.startIndex + 1) * width;
+  pageDrag.targetLeft = Math.max(first, Math.min(last, pageDrag.left - dx));
   if (dragFrame === undefined) {
     pageDrag.frameTime = performance.now();
     dragFrame = requestAnimationFrame(followPageDrag);
@@ -142,7 +146,8 @@ function followPageDrag(now) {
   const remaining = pageDrag.targetLeft - position;
   const elapsed = Math.max(1, now - pageDrag.frameTime);
   pageDrag.frameTime = now;
-  const blend = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 1 - Math.exp(-elapsed / 24);
+  // Reader animations are explicitly independent of the device animation setting.
+  const blend = 1 - Math.exp(-elapsed / 24);
   setPagePosition(Math.abs(remaining) < 1 ? pageDrag.targetLeft : position + remaining * blend);
   if (Math.abs(pageDrag.targetLeft - getPagePosition()) >= 1) {
     dragFrame = requestAnimationFrame(followPageDrag);
@@ -181,8 +186,7 @@ function animateToPage(target, velocity) {
   canvas.classList.add('dragging');
   const step = now => {
     const elapsed = now - began;
-    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reducedMotion || elapsed >= approachMs + settleMs) {
+    if (elapsed >= approachMs + settleMs) {
       setPagePosition(end);
       stopMomentum();
       index = target;
@@ -228,8 +232,10 @@ function finishPageDrag(cancelled = false) {
   }
   const boost = Math.sign(velocity) === Math.sign(acceleration) ? Math.min(0.6, Math.abs(acceleration) * 30) : 0;
   const projection = Math.abs(velocity) > 0.35 ? velocity * 180 * (1 + boost) : 0;
-  const projected = getPagePosition() + Math.max(-width * 3, Math.min(width * 3, projection));
-  const target = Math.max(0, Math.min(files.length - 1, Math.round(projected / width)));
+  const projected = getPagePosition() + Math.max(-width, Math.min(width, projection));
+  const first = Math.max(0, drag.startIndex - 1);
+  const last = Math.min(files.length - 1, drag.startIndex + 1);
+  const target = Math.max(first, Math.min(last, Math.round(projected / width)));
   if (cancelled || !drag.horizontal) {
     index = Math.max(0, Math.min(files.length - 1, Math.round(canvas.scrollLeft / width)));
     scrollToPage('instant');
