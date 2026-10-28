@@ -200,9 +200,12 @@ function animateToPage(target, velocity) {
   const end = target * canvas.clientWidth;
   const distance = end - start;
   const approachMs = Math.min(180, Math.max(90, Math.abs(distance) / Math.max(3, Math.abs(velocity) * 2)));
-  const settleMs = 380;
+  const settleMs = 113;
+  // Preserve the original first swing up to its peak, then return to center once.
+  const peakSeconds = Math.atan(40 / 8) / 40;
   const amplitude = Math.min(18, Math.abs(distance) * 0.08 + Math.abs(velocity) * 1.5);
   const direction = Math.sign(distance) || Math.sign(velocity) || 1;
+  const peakSwing = amplitude * Math.exp(-8 * peakSeconds) * Math.sin(40 * peakSeconds);
   // This clock starts at release, rather than at the first rendered frame.
   const began = performance.now();
   canvas.classList.add('dragging');
@@ -220,10 +223,17 @@ function animateToPage(target, velocity) {
       const progress = Math.max(0, elapsed / approachMs);
       setPagePosition(start + distance * (1 - (1 - progress) ** 3));
     } else {
-      // Alternating offsets with an exponentially shrinking amplitude.
       const seconds = (elapsed - approachMs) / 1000;
-      const swing = direction * amplitude * Math.exp(-8 * seconds) * Math.sin(40 * seconds);
-      setPagePosition(end + swing);
+      let swing;
+      if (seconds <= peakSeconds) {
+        // The original outgoing motion stays unchanged.
+        swing = amplitude * Math.exp(-8 * seconds) * Math.sin(40 * seconds);
+      } else {
+        // Return smoothly to zero without crossing to the opposite side.
+        const progress = (seconds - peakSeconds) / (settleMs / 1000 - peakSeconds);
+        swing = peakSwing * (1 - progress * progress * (3 - 2 * progress));
+      }
+      setPagePosition(end + direction * swing);
     }
     momentumFrame = requestAnimationFrame(step);
   };
