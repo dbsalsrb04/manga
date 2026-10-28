@@ -3,6 +3,7 @@ let files = [];
 let index = 0;
 let imageUrls = [];
 let pageDrag;
+let gestureBounds;
 let momentumFrame;
 let dragFrame;
 let pageBarTimer;
@@ -80,6 +81,16 @@ $('scroll-mode').onchange = () => {
 };
 $('canvas').addEventListener('scroll', () => {
   if (!files.length) return;
+  // Keep the same bounds until release settling ends, including native scroll events.
+  if (gestureBounds && !$('scroll-mode').checked) {
+    const canvas = $('canvas');
+    const minimum = gestureBounds.first * canvas.clientWidth;
+    const maximum = gestureBounds.last * canvas.clientWidth;
+    const bounded = Math.max(minimum, Math.min(maximum, canvas.scrollLeft));
+    if (Math.abs(canvas.scrollLeft - bounded) > 1) {
+      setPagePosition(bounded);
+    }
+  }
   if ($('scroll-mode').checked) {
     const slides = [...$('canvas').children];
     const position = $('canvas').scrollTop + 1;
@@ -104,10 +115,15 @@ $('canvas').addEventListener('touchstart', event => {
   canvas.classList.add('dragging');
   canvas.scrollTo({ left: canvas.scrollLeft, behavior: 'instant' });
   const touch = event.touches[0];
+  const startIndex = Math.max(0, Math.min(files.length - 1, Math.round(left / canvas.clientWidth)));
+  gestureBounds = {
+    first: Math.max(0, startIndex - 1),
+    last: Math.min(files.length - 1, startIndex + 1),
+  };
   pageDrag = {
     x: touch.clientX, y: touch.clientY,
     left, targetLeft: left,
-    startIndex: Math.max(0, Math.min(files.length - 1, Math.round(left / canvas.clientWidth))),
+    startIndex,
     horizontal: false, samples: [{ left, time: performance.now() }],
   };
 }, { passive: true });
@@ -158,9 +174,13 @@ function getPagePosition() {
   return $('canvas').scrollLeft - (parseFloat($('canvas').style.getPropertyValue('--page-offset')) || 0);
 }
 function setPagePosition(position) {
+  // Scroll only inside this gesture's adjacent pages. The visual remainder also
+  // carries spring overshoot, so the bounce never opens a second scroll path.
   const canvas = $('canvas');
   const maximum = Math.max(0, (files.length - 1) * canvas.clientWidth);
-  const bounded = Math.max(0, Math.min(maximum, position));
+  const first = gestureBounds ? gestureBounds.first * canvas.clientWidth : 0;
+  const last = gestureBounds ? gestureBounds.last * canvas.clientWidth : maximum;
+  const bounded = Math.max(first, Math.min(last, position));
   canvas.scrollLeft = bounded;
   canvas.style.setProperty('--page-offset', `${bounded - position}px`);
 }
@@ -170,9 +190,11 @@ function stopMomentum(preservePosition = false) {
   cancelAnimationFrame(momentumFrame);
   momentumFrame = undefined;
   $('canvas').classList.remove('dragging');
+  gestureBounds = undefined;
   if (!preservePosition) $('canvas').style.removeProperty('--page-offset');
 }
 function animateToPage(target, velocity) {
+  if (gestureBounds) target = Math.max(gestureBounds.first, Math.min(gestureBounds.last, target));
   const canvas = $('canvas');
   const start = getPagePosition();
   const end = target * canvas.clientWidth;
