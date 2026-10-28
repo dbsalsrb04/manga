@@ -41,3 +41,6 @@
 #page-range::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:#d8e9bc}
 #page-range:focus-visible{outline:2px solid #c8e5a4;outline-offset:6px;border-radius:4px}
 #page-range:disabled{cursor:default;opacity:.5}
+
+/* Visual overflow lets the release spring oscillate at the first/last page too. */
+.slide { transform: translateX(var(--page-offset, 0px)); }

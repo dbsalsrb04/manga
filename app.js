@@ -99,14 +99,15 @@ $('canvas').addEventListener('touchstart', event => {
     return;
   }
   const canvas = $('canvas');
-  stopMomentum();
+  const left = getPagePosition();
+  stopMomentum(true);
   canvas.classList.add('dragging');
   canvas.scrollTo({ left: canvas.scrollLeft, behavior: 'instant' });
   const touch = event.touches[0];
   pageDrag = {
     x: touch.clientX, y: touch.clientY,
-    left: canvas.scrollLeft, targetLeft: canvas.scrollLeft, startIndex: index,
-    horizontal: false, samples: [{ left: canvas.scrollLeft, time: performance.now() }],
+    left, targetLeft: left, startIndex: index,
+    horizontal: false, samples: [{ left, time: performance.now() }],
   };
 }, { passive: true });
 $('canvas').addEventListener('touchmove', event => {
@@ -137,40 +138,68 @@ $('canvas').addEventListener('touchmove', event => {
 function followPageDrag(now) {
   dragFrame = undefined;
   if (!pageDrag) return;
-  const canvas = $('canvas');
-  const remaining = pageDrag.targetLeft - canvas.scrollLeft;
+  const position = getPagePosition();
+  const remaining = pageDrag.targetLeft - position;
   const elapsed = Math.max(1, now - pageDrag.frameTime);
   pageDrag.frameTime = now;
   const blend = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 1 - Math.exp(-elapsed / 24);
-  canvas.scrollLeft = Math.abs(remaining) < 1 ? pageDrag.targetLeft : canvas.scrollLeft + remaining * blend;
-  if (Math.abs(pageDrag.targetLeft - canvas.scrollLeft) >= 1) {
+  setPagePosition(Math.abs(remaining) < 1 ? pageDrag.targetLeft : position + remaining * blend);
+  if (Math.abs(pageDrag.targetLeft - getPagePosition()) >= 1) {
     dragFrame = requestAnimationFrame(followPageDrag);
   }
 }
-function stopMomentum() {
+// Keep a virtual horizontal position so the spring can swing past either edge.
+function getPagePosition() {
+  return $('canvas').scrollLeft - (parseFloat($('canvas').style.getPropertyValue('--page-offset')) || 0);
+}
+function setPagePosition(position) {
+  const canvas = $('canvas');
+  const maximum = Math.max(0, (files.length - 1) * canvas.clientWidth);
+  const bounded = Math.max(0, Math.min(maximum, position));
+  canvas.scrollLeft = bounded;
+  canvas.style.setProperty('--page-offset', `${bounded - position}px`);
+}
+function stopMomentum(preservePosition = false) {
   cancelAnimationFrame(dragFrame);
   dragFrame = undefined;
   cancelAnimationFrame(momentumFrame);
   momentumFrame = undefined;
   $('canvas').classList.remove('dragging');
+  if (!preservePosition) $('canvas').style.removeProperty('--page-offset');
 }
 function animateToPage(target, velocity) {
   const canvas = $('canvas');
-  const start = canvas.scrollLeft;
+  const start = getPagePosition();
   const end = target * canvas.clientWidth;
   const distance = end - start;
-  const duration = Math.min(450, Math.max(180, Math.abs(distance) / Math.max(1, Math.abs(velocity))));
+  const approachMs = Math.min(180, Math.max(90, Math.abs(distance) / Math.max(3, Math.abs(velocity) * 2)));
+  const settleMs = 380;
+  const amplitude = Math.min(18, Math.abs(distance) * 0.08 + Math.abs(velocity) * 1.5);
+  const direction = Math.sign(distance) || Math.sign(velocity) || 1;
+  // This clock starts at release, rather than at the first rendered frame.
   const began = performance.now();
   canvas.classList.add('dragging');
   const step = now => {
-    const progress = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : Math.min(1, (now - began) / duration);
-    canvas.scrollLeft = start + distance * (1 - (1 - progress) ** 3);
-    if (progress < 1) momentumFrame = requestAnimationFrame(step);
-    else {
+    const elapsed = now - began;
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion || elapsed >= approachMs + settleMs) {
+      setPagePosition(end);
       stopMomentum();
       index = target;
       updateHeader();
+      return;
     }
+    if (elapsed < approachMs) {
+      // Fast approach to the selected page after the finger is lifted.
+      const progress = Math.max(0, elapsed / approachMs);
+      setPagePosition(start + distance * (1 - (1 - progress) ** 3));
+    } else {
+      // Alternating offsets with an exponentially shrinking amplitude.
+      const seconds = (elapsed - approachMs) / 1000;
+      const swing = direction * amplitude * Math.exp(-8 * seconds) * Math.sin(40 * seconds);
+      setPagePosition(end + swing);
+    }
+    momentumFrame = requestAnimationFrame(step);
   };
   momentumFrame = requestAnimationFrame(step);
 }
@@ -199,7 +228,7 @@ function finishPageDrag(cancelled = false) {
   }
   const boost = Math.sign(velocity) === Math.sign(acceleration) ? Math.min(0.6, Math.abs(acceleration) * 30) : 0;
   const projection = Math.abs(velocity) > 0.35 ? velocity * 180 * (1 + boost) : 0;
-  const projected = canvas.scrollLeft + Math.max(-width * 3, Math.min(width * 3, projection));
+  const projected = getPagePosition() + Math.max(-width * 3, Math.min(width * 3, projection));
   const target = Math.max(0, Math.min(files.length - 1, Math.round(projected / width)));
   if (cancelled || !drag.horizontal) {
     index = Math.max(0, Math.min(files.length - 1, Math.round(canvas.scrollLeft / width)));
